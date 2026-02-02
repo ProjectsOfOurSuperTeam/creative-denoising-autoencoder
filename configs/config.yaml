@@ -1,0 +1,39 @@
+# Data
+data:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  synthetic_dir: data/synthetic
+  patch_size: 256
+  # DIV2K, Flickr2K paths
+  train_images: []
+  val_images: []
+
+# Model
+model:
+  name: unet  # cdae | unet | dncnn
+  in_channels: 3
+  out_channels: 3
+  # UNet features
+  features: [64, 128, 256, 512]
+
+# Training
+train:
+  batch_size: 8
+  epochs: 100
+  lr: 1.0e-3
+  l1_weight: 1.0
+  perceptual_weight: 0.0
+  ssim_weight: 0.0
+  num_workers: 4
+  save_every: 5
+  weights_dir: weights
+  results_dir: results
+
+# Evaluation
+eval:
+  compute_lpips: true
+
+# Logging (Weights & Biases)
+wandb:
+  project: creative-denoising-autoencoder
+  entity: null  # set your team/username
