@@ -16,3 +16,4 @@
    - `streamlit run frontend/app_streamlit.py`
 3. Відкрити URL, який покаже Streamlit у терміналі
 
+ uv run streamlit run app_streamlit.py
