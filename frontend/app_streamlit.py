@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import streamlit as st
+from pathlib import Path
 
 
 st.set_page_config(page_title="Creative CV", page_icon="🖼️", layout="wide")
@@ -105,6 +106,17 @@ if section == "Завантаження":
         with col2:
             st.subheader("Відновлений результат")
             st.image(restored, use_container_width=True)
+
+        restored_bgr = cv2.cvtColor(restored, cv2.COLOR_RGB2BGR)
+        success, encoded_image = cv2.imencode(".png", restored_bgr)
+        if success:
+            original_stem = Path(uploaded.name).stem if uploaded.name else "image"
+            st.download_button(
+                label="Зберегти результат",
+                data=encoded_image.tobytes(),
+                file_name=f"{original_stem}_restored.png",
+                mime="image/png",
+            )
 
         st.info(f"Обрана модель: {model_name}. Зараз показано демо-відновлення через OpenCV.")
     else:
