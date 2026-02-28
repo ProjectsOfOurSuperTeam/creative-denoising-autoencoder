@@ -12,6 +12,7 @@ dependencies = [
   "opencv-python>=4.13.0.92",
   "pandas>=3.0.0",
   "scikit-image>=0.26.0",
+  "streamlit",
   "torch>=2.9.1",
   "torchvision>=0.24.1",
   "tqdm>=4.67.3",
