@@ -220,6 +220,26 @@ model = build_model("cdae", in_channels=1)  # або "dncnn", "unet"
 | Optuna trials | 15 per model |
 | Final epochs | до 30 (early stopping, patience=10) |
 
+### Grayscale vs RGB
+
+- **Grayscale** (`in_channels=1`): `ds_combined_train` = Denoising Documents + DIV2K grayscale
+- **RGB** (`in_channels=3`): `ds_combined_train_rgb` = тільки DIV2K (без конвертації в grayscale)
+
+Для RGB-навчання:
+1. Встановіть `TRAIN_RGB = True` у комірці датасетів.
+2. У комірці перед Optuna HPO змініть: `train_loader = dl_combined_train_rgb`, `val_loader = dl_combined_val_rgb`, `in_channels = 3`.
+
+### Деградації (синтетичні)
+
+| Деградація | Ймовірність |
+|---|---|
+| Gaussian noise | 80% |
+| Poisson noise | 40% |
+| Impulse (salt & pepper) | 30% |
+| Gaussian blur | 50% |
+| JPEG-артефакти | 50% |
+| Downscale → Upscale | 30% |
+
 ### Чекпоінти
 
 Чекпоінти зберігаються автоматично в `checkpoints/<model_name>/best.pt` і містять:
@@ -260,6 +280,7 @@ uv run streamlit run app_streamlit.py
 
 - **Завантаження** — завантажити фото та обрати модель (CDAE / DnCNN / U-Net) для відновлення
 - **Порівняння** — побачити результати всіх трьох моделей поруч
+- **Режим** — автоматичне визначення grayscale/RGB; опція «Примусово RGB» для RGB-моделей
 - **Про проєкт** — інформація про проєкт та використані підходи
 
 ---

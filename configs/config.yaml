@@ -11,7 +11,7 @@ data:
 # Model
 model:
   name: unet  # cdae | unet | dncnn
-  in_channels: 3
+  in_channels: 1  # 1 = grayscale (Denoising + DIV2K gray), 3 = RGB (DIV2K only)
   out_channels: 3
   # UNet features
   features: [64, 128, 256, 512]
