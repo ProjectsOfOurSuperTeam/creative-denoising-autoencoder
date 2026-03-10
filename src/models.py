@@ -162,6 +162,7 @@ def denoise_image(
     model: nn.Module,
     image: "torch.Tensor",
     patch_size: int = 256,
+    patch_overlap: int = 32,
     device: Optional[torch.device] = None,
 ) -> "torch.Tensor":
     """
@@ -183,7 +184,12 @@ def denoise_image(
     if h <= patch_size and w <= patch_size:
         pred = model(image)
         return pred.squeeze(0).clamp(0, 1).cpu()
-    # Sliding window for large images
+
+    # Sliding window for large images (tiled inference with overlap).
+    # Overlap + weighted blending reduces seam artifacts on tile borders.
+    patch_overlap = max(0, min(int(patch_overlap), patch_size - 1))
+    stride = max(1, patch_size - patch_overlap)
+
     pad_h = (patch_size - h % patch_size) % patch_size
     pad_w = (patch_size - w % patch_size) % patch_size
     if pad_h or pad_w:
@@ -192,12 +198,25 @@ def denoise_image(
 
     output = torch.zeros_like(image)
     count = torch.zeros_like(image)
-    for i in range(0, ph, patch_size):
-        for j in range(0, pw, patch_size):
+
+    ys = list(range(0, max(1, ph - patch_size + 1), stride))
+    xs = list(range(0, max(1, pw - patch_size + 1), stride))
+    if ys[-1] != ph - patch_size:
+        ys.append(ph - patch_size)
+    if xs[-1] != pw - patch_size:
+        xs.append(pw - patch_size)
+
+    wy = torch.hann_window(patch_size, periodic=False, dtype=image.dtype, device=image.device)
+    wx = torch.hann_window(patch_size, periodic=False, dtype=image.dtype, device=image.device)
+    window = (wy[:, None] * wx[None, :]).clamp_min(1e-3).unsqueeze(0).unsqueeze(0)
+
+    for i in ys:
+        for j in xs:
             patch = image[:, :, i : i + patch_size, j : j + patch_size]
             out_patch = model(patch)
-            output[:, :, i : i + patch_size, j : j + patch_size] += out_patch
-            count[:, :, i : i + patch_size, j : j + patch_size] += 1
-    output = output / count
+            output[:, :, i : i + patch_size, j : j + patch_size] += out_patch * window
+            count[:, :, i : i + patch_size, j : j + patch_size] += window
+
+    output = output / count.clamp_min(1e-6)
     output = output[:, :, :h, :w].squeeze(0).clamp(0, 1).cpu()
     return output

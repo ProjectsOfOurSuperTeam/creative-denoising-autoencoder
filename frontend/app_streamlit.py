@@ -103,6 +103,25 @@ color_mode = st.sidebar.radio(
     help="Auto: detect from image. Force grayscale: convert to gray. Force RGB: use RGB models.",
 )
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("Large image inference")
+tile_size = st.sidebar.slider(
+    "Tile size",
+    min_value=128,
+    max_value=1024,
+    value=256,
+    step=64,
+    help="Patch size for model inference. Larger values are faster but use more memory.",
+)
+tile_overlap = st.sidebar.slider(
+    "Tile overlap",
+    min_value=0,
+    max_value=max(0, tile_size - 1),
+    value=min(32, tile_size // 2),
+    step=8,
+    help="Overlap between neighboring tiles to reduce seam artifacts.",
+)
+
 
 def _read_uploaded_image(uploaded_file) -> np.ndarray:
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
@@ -153,7 +172,13 @@ def _load_models(in_channels: int):
         return None
 
 
-def _restore_with_model(img: np.ndarray, model_name: str, models: dict) -> np.ndarray | None:
+def _restore_with_model(
+    img: np.ndarray,
+    model_name: str,
+    models: dict,
+    tile_size: int = 256,
+    tile_overlap: int = 32,
+) -> np.ndarray | None:
     """Restore image using selected model. img: (H,W) grayscale or (H,W,3) RGB."""
     key = model_name.lower().replace("-", "")
     if key not in models:
@@ -166,7 +191,13 @@ def _restore_with_model(img: np.ndarray, model_name: str, models: dict) -> np.nd
             img_t = torch.from_numpy(img).float().unsqueeze(0) / 255.0  # (1, H, W)
         else:
             img_t = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0  # (3, H, W)
-        out = denoise_image(model, img_t, patch_size=256, device=torch.device("cpu"))
+        out = denoise_image(
+            model,
+            img_t,
+            patch_size=int(tile_size),
+            patch_overlap=int(tile_overlap),
+            device=torch.device("cpu"),
+        )
         out_np = np.clip(out.numpy(), 0, 1)
         if out_np.shape[0] == 1:
             out_np = out_np.squeeze(0)  # (H, W)
@@ -178,7 +209,13 @@ def _restore_with_model(img: np.ndarray, model_name: str, models: dict) -> np.nd
         return None
 
 
-def _restore_image(rgb_image: np.ndarray, model_name: str, use_rgb: bool) -> tuple[np.ndarray, str]:
+def _restore_image(
+    rgb_image: np.ndarray,
+    model_name: str,
+    use_rgb: bool,
+    tile_size: int = 256,
+    tile_overlap: int = 32,
+) -> tuple[np.ndarray, str]:
     """
     Returns (restored_image, status_message).
     status: 'model' if PyTorch used, 'opencv' if fallback.
@@ -194,7 +231,13 @@ def _restore_image(rgb_image: np.ndarray, model_name: str, use_rgb: bool) -> tup
         else:
             img_in = rgb_image
 
-        restored = _restore_with_model(img_in, model_name, models)
+        restored = _restore_with_model(
+            img_in,
+            model_name,
+            models,
+            tile_size=tile_size,
+            tile_overlap=tile_overlap,
+        )
         if restored is not None:
             if not use_rgb and rgb_image.ndim == 3:
                 restored = cv2.cvtColor(restored, cv2.COLOR_GRAY2RGB)
@@ -224,7 +267,13 @@ if section == "Upload":
             color_mode == "Force RGB"
             or (color_mode == "Auto" and not is_gray)
         )
-        restored, status = _restore_image(image, model_name or "CDAE", use_rgb)
+        restored, status = _restore_image(
+            image,
+            model_name or "CDAE",
+            use_rgb,
+            tile_size=tile_size,
+            tile_overlap=tile_overlap,
+        )
 
         col1, col2 = st.columns(2)
         with col1:
@@ -280,7 +329,13 @@ elif section == "Compare":
         results = {}
         for mn in ["CDAE", "DnCNN", "U-Net"]:
             if models:
-                res, _ = _restore_image(image, mn, use_rgb)
+                res, _ = _restore_image(
+                    image,
+                    mn,
+                    use_rgb,
+                    tile_size=tile_size,
+                    tile_overlap=tile_overlap,
+                )
             else:
                 res = _opencv_fallback(image)
             results[mn] = res
