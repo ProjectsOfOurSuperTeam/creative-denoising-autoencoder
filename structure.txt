@@ -1,0 +1,17 @@
+﻿Total cells: 16
+[00] code     7b1ca2fa  import os import time import json import io import random from pathlib import Pa
+[01] code     aa4f1891  # All functions accept and return a float32 tensor  (1, H, W)  in [0, 1].  def _
+[02] code     10f64cf9    class DegradedMNIST(Dataset):     """     Wraps a base MNIST Subset.     Retur
+[03] code     53883a1e  class DenoisingDataset(Dataset):     """     Grayscale noisy-clean paired datase
+[04] markdown 3958eb65  # Exploratory Data Analysis (EDA)  Two datasets are used in this project: - **De
+[05] code     3af240e4  # тФАтФА EDA helpers тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+[06] code     6a3c161c  # тФАтФА 2. Document spatial dimensions тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+[07] code     e46e7f1b  # тФАтФА 3. Qualitative sample pairs: real noisy / clean / residual тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+[08] code     e06c99a1  # тФАтФА 4. Pixel intensity distributions тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+[09] code     e51a15b4  # тФАтФА 5. Per-image noise statistics: mean / std / skewness of residual тФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+[10] code     b7a86614  # тФАтФА 6. Baseline PSNR / SSIM (noisy vs clean, before any model) тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+[11] code     73682e55  # тФАтФА 7. FFT amplitude spectrum of residuals тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+[12] code     d016137a  # тФАтФА 8. PSNR тАУ SSIM correlation scatter тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+[13] code     b590b234  # тФАтФА 9. MNIST class distribution & stratification check тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+[14] code     ba2faf7e  # тФАтФА 10. MNIST: per-degradation quality comparison тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+[15] code     a337a801   # Show clean тЖТ degraded for each degradation type, both datasets.  def _to_np(t

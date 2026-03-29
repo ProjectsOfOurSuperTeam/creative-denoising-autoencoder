@@ -1,0 +1,69 @@
+﻿     img = Image.open(path).convert('L')   # тЖР grayscale
+        return transforms.ToTensor()(img)     # тЖТ (1, H, W) float32
+
+    def __getitem__(self, idx):
+        noisy_path = self.noisy_paths[idx]
+        clean_path = self.clean_paths[idx]
+
+        # тФАтФА Train mode тФАтФА
+        if clean_path is not None:
+            clean_raw = self._load_gray(clean_path)        # (1, H, W)
+
+            if self.degrade_mode:
+                # Generate noisy image from clean on-the-fly
+                noisy_t = degrade(clean_raw, self.degrade_mode)
+            else:
+                # Use the provided noisy file
+                noisy_raw = self._load_gray(noisy_path)
+                noisy_t   = self.transform(transforms.ToPILImage()(noisy_raw))
+
+            clean_t = self.target_tf(transforms.ToPILImage()(clean_raw))
+            return noisy_t, clean_t
+
+        # тФАтФА Test mode (no clean) тФАтФА
+        noisy_raw = self._load_gray(noisy_path)
+        return noisy_raw
+
+
+def load_denoising(
+    base_dir     = DENOISING_DIR,
+    batch_size   = 8,
+    num_workers  = 2,
+    degrade_mode = None,      # None тЖТ use provided noisy files; str тЖТ synthesise
+):
+    base_dir   = Path(base_dir)
+    target_sz  = (256, 256)
+
+    aug_tf = transforms.Compose([
+        transforms.Resize(target_sz),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomVerticalFlip(),
+        transforms.ToTensor(),
+    ])
+    plain_tf = transforms.Compose([
+        transforms.Resize(target_sz),
+        transforms.ToTensor(),
+    ])
+
+    trainset = DenoisingDataset(
+        noisy_dir    = base_dir / 'train',
+        clean_dir    = base_dir / 'train_cleaned',
+        transform    = aug_tf,
+        target_tf    = plain_tf,
+        degrade_mode = degrade_mode,
+    )
+    testset = DenoisingDataset(
+        noisy_dir    = base_dir / 'test',
+        clean_dir    = None,
+        transform    = plain_tf,
+    )
+
+    loader_kw = dict(num_workers=num_workers, pin_memory=True)
+    train_dl  = DataLoader(trainset, batch_size=batch_size, shuffle=True,  **loader_kw)
+    test_dl   = DataLoader(testset,  batch_size=batch_size, shuffle=False, **loader_kw)
+
+    print(f'Denoising  train : {len(trainset):,}  |  test : {len(testset):,}')
+    return trainset, testset, train_dl, test_dl
+
+
+den_train, den_test, den_train_dl, den_test_dl = load_denoising(degrade_mode='random')

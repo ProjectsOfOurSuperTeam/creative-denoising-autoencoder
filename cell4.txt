@@ -1,0 +1,74 @@
+﻿
+# Show clean тЖТ degraded for each degradation type, both datasets.
+
+def _to_np(t: torch.Tensor) -> np.ndarray:
+    """(1, H, W) tensor тЖТ (H, W) numpy array clamped to [0, 1]."""
+    return t.squeeze(0).clamp(0., 1.).numpy()
+
+
+def show_degradations(dataset, n: int = 5, title_prefix: str = '', raw_item_idx: int = 0):
+    """
+    Displays a grid:
+        rows  = degradation types (+ clean reference)
+        cols  = n random samples
+
+    dataset : iterable returning (clean, ...) where clean is (1, H, W)
+    """
+    modes   = list(DEGRADATIONS.keys())
+    n_rows  = len(modes) + 2   # +1 for clean row, +1 for combo row
+    indices = random.sample(range(len(dataset)), n)
+
+    fig, axes = plt.subplots(n_rows, n, figsize=(n * 2.2, n_rows * 2.2))
+    fig.suptitle(title_prefix, fontsize=14, fontweight='bold', y=1.01)
+
+    for col, idx in enumerate(indices):
+        item  = dataset[idx]
+        clean = item[0]          # works for (clean, noisy, lbl) and (clean, noisy)
+
+        # Row 0 : clean reference
+        axes[0, col].imshow(_to_np(clean), cmap='gray', vmin=0, vmax=1)
+        axes[0, col].set_title(f'#{idx}', fontsize=8)
+        axes[0, col].axis('off')
+        if col == 0:
+            axes[0, col].set_ylabel('clean', fontsize=9, rotation=0, labelpad=40, va='center')
+
+        # Rows 1..n : each degradation
+        for row, mode in enumerate(modes, start=1):
+            noisy = degrade(clean, mode)
+            axes[row, col].imshow(_to_np(noisy), cmap='gray', vmin=0, vmax=1)
+            axes[row, col].axis('off')
+            if col == 0:
+                axes[row, col].set_ylabel(mode, fontsize=9, rotation=0, labelpad=40, va='center')
+
+        # Row random combination: compose several random degradations
+        combined = clean.clone()
+        n_ops = random.randint(2, 4)
+        ops = random.sample(modes, k=n_ops)
+        for op in ops:
+            combined = degrade(combined, op)
+        combo_row = n_rows - 1
+        axes[combo_row, col].imshow(_to_np(combined), cmap='gray', vmin=0, vmax=1)
+        axes[combo_row, col].axis('off')
+        if col == 0:
+            axes[combo_row, col].set_ylabel('combo', fontsize=9, rotation=0, labelpad=40, va='center')
+
+    plt.tight_layout()
+    plt.show()
+
+raw_plain_tf = transforms.Compose([
+    transforms.ToTensor(),
+])
+mnist_raw = torchvision.datasets.MNIST(DATA_ROOT, train=True, download=False, transform=raw_plain_tf)
+
+class _PlainWrap(Dataset):
+    """Returns (img, img, label) so show_degradations works."""
+    def __init__(self, ds): self.ds = ds
+    def __len__(self):      return len(self.ds)
+    def __getitem__(self, i):
+        img, lbl = self.ds[i]
+        return img, img, lbl
+
+show_degradations(_PlainWrap(mnist_raw), n=5, title_prefix='MNIST тАФ all degradations')
+
+# тФАтФА Denoising-dirty-documents visualisation тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+show_degradations(den_train, n=5, title_prefix='Denoising-dirty-documents тАФ all degradations')
