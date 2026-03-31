@@ -22,10 +22,25 @@ st.markdown(
     <style>
     html, body, [class*="css"] { font-family: 'Segoe UI', system-ui, sans-serif; }
     [data-testid="stSidebar"] { background: #f6f7fb; }
+    /* Softer slider accent (less default “alarm red”) */
+    [data-testid="stSlider"] [role="slider"] { background-color: #5c6bc0; }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+def _gray_hex(level: int) -> str:
+    """Single-channel brightness → #RRGGBB (R=G=B)."""
+    v = max(0, min(255, int(level)))
+    return f"#{v:02x}{v:02x}{v:02x}"
+
+
+def _gray_rgba(level: int, opacity_pct: int) -> str:
+    """Grayscale + opacity for canvas fill (shapes)."""
+    v = max(0, min(255, int(level)))
+    a = max(0.0, min(1.0, int(opacity_pct) / 100.0))
+    return f"rgba({v},{v},{v},{a:.3f})"
 
 
 def _pixel_zoom(img: np.ndarray, z: int = ZOOM) -> np.ndarray:
@@ -112,58 +127,84 @@ if src == "Upload image":
             st.session_state.pop("denoised_28", None)
 else:
     st.caption(
-        "Полотно 280×280 → даунскейл до 28×28. Для прямокутників/кіл контур білий; заливка напівпрозора (можна накладати фігури)."
+        "Полотно 280×280 → **28×28 grayscale** (один канал). У модель іде лише яскравість пікселя."
     )
-    with st.expander("Інструменти канвасу", expanded=True):
-        _tool_labels = {
-            "freedraw": "Пензель (вільне малювання)",
-            "line": "Лінія",
-            "rect": "Прямокутник",
-            "circle": "Коло / еліпс",
-            "polygon": "Багатокутник",
-        }
+    _tool_labels = {
+        "freedraw": "Пензель",
+        "line": "Лінія",
+        "rect": "Прямокутник",
+        "circle": "Коло / еліпс",
+        "polygon": "Багатокутник",
+    }
+    # Canvas left, tools right — uses empty horizontal space; tools stay next to the drawing.
+    col_draw, col_tools = st.columns([1.35, 1.0], gap="large")
+
+    with col_tools:
+        st.markdown("**Інструменти**")
         drawing_mode = st.selectbox(
-            "Інструмент",
+            "Режим малювання",
             options=list(_tool_labels.keys()),
             format_func=lambda k: _tool_labels[k],
             key="canvas_tool",
         )
-        stroke_w = st.slider("Товщина лінії / контуру", min_value=1, max_value=32, value=8, key="canvas_stroke")
-        stroke_hex = st.color_picker("Колір контуру", value="#FFFFFF", key="canvas_stroke_color")
-        # Semi-transparent fill for rect/circle/polygon (visible on black background)
-        fill_hex = st.color_picker("Колір заливки (фігури)", value="#808080", key="canvas_fill_color")
-        fill_a = st.slider("Прозорість заливки", 0, 100, 40, key="canvas_fill_alpha", help="0 = лише контур")
+        stroke_w = st.slider(
+            "Товщина лінії / контуру",
+            min_value=1,
+            max_value=32,
+            value=8,
+            key="canvas_stroke",
+        )
+        stroke_gray = st.slider(
+            "Контур: сірий (0–255)",
+            min_value=0,
+            max_value=255,
+            value=255,
+            key="canvas_stroke_gray",
+            help="0 = чорний, 255 = білий. Без кольору — лише один канал.",
+        )
+        fill_gray = st.slider(
+            "Заливка фігур: сірий (0–255)",
+            min_value=0,
+            max_value=255,
+            value=160,
+            key="canvas_fill_gray",
+        )
+        fill_opacity = st.slider(
+            "Заливка: непрозорість %",
+            min_value=0,
+            max_value=100,
+            value=45,
+            key="canvas_fill_opacity",
+            help="0% — тільки контур, без заливки.",
+        )
 
-    def _hex_to_rgba(h: str, alpha_0_255: int) -> str:
-        h = h.lstrip("#")
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        return f"rgba({r},{g},{b},{alpha_0_255 / 255.0:.3f})"
+    stroke_hex = _gray_hex(stroke_gray)
+    fill_rgba = _gray_rgba(fill_gray, fill_opacity)
 
-    fill_rgba = _hex_to_rgba(fill_hex, fill_a)
-
-    canvas_result = st_canvas(
-        fill_color=fill_rgba,
-        stroke_width=int(stroke_w),
-        stroke_color=stroke_hex,
-        background_color="#000000",
-        width=280,
-        height=280,
-        drawing_mode=drawing_mode,
-        key="dae_canvas",
-    )
-    if st.button("Use drawing as input"):
-        if canvas_result.image_data is None:
-            st.warning("Nothing drawn yet.")
-        else:
-            rgba = canvas_result.image_data.astype(np.uint8)
-            rgb = rgba[..., :3]
-            gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-            small = cv2.resize(gray, (28, 28), interpolation=cv2.INTER_AREA)
-            st.session_state["original_28"] = small
-            st.session_state["force_redegrade"] = True
-            st.session_state["degraded_sig"] = None
-            st.session_state.pop("denoised_28", None)
-            st.success("Input updated from canvas.")
+    with col_draw:
+        canvas_result = st_canvas(
+            fill_color=fill_rgba,
+            stroke_width=int(stroke_w),
+            stroke_color=stroke_hex,
+            background_color="#000000",
+            width=280,
+            height=280,
+            drawing_mode=drawing_mode,
+            key="dae_canvas",
+        )
+        if st.button("Застосувати малюнок як вхід", type="primary"):
+            if canvas_result.image_data is None:
+                st.warning("Спочатку намалюй щось на полотні.")
+            else:
+                rgba = canvas_result.image_data.astype(np.uint8)
+                rgb = rgba[..., :3]
+                gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+                small = cv2.resize(gray, (28, 28), interpolation=cv2.INTER_AREA)
+                st.session_state["original_28"] = small
+                st.session_state["force_redegrade"] = True
+                st.session_state["degraded_sig"] = None
+                st.session_state.pop("denoised_28", None)
+                st.success("Вхід оновлено з канвасу.")
 
 orig = st.session_state["original_28"]
 if orig is None:
