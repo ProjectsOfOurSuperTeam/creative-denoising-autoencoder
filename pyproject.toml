@@ -17,6 +17,7 @@ dependencies = [
   "scikit-learn>=1.8.0",
   "standard-imghdr>=3.13.0",
   "streamlit",
+  "streamlit-drawable-canvas>=0.9.3",
   "torch>=2.9.1",
   "torchvision>=0.24.1",
   "tqdm>=4.67.3",

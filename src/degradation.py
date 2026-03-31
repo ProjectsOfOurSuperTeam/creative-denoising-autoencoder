@@ -1,112 +1,161 @@
 """
-Synthetic degradation pipeline for denoising model training.
+Degradations aligned with main.ipynb (float tensor (1, H, W) in [0, 1]).
 
-Degradations: Gaussian noise, Poisson noise, impulse noise (salt & pepper),
-Gaussian blur, JPEG artifacts, downscale → upscale.
+Also provides numpy uint8 bridges for Streamlit (28×28 grayscale).
 """
 
+from __future__ import annotations
+
+import io
 import random
-from typing import Optional
+from typing import Iterable, List, Sequence
 
-import cv2
 import numpy as np
+import torch
+import torchvision.transforms as transforms
+from PIL import Image
+
+# Same ranges as notebook
+DEGRADE_CFG = dict(
+    gaussian_std=(0.08, 0.15),
+    sp_amount=(0.03, 0.08),
+    blur_kernel=(3, 4),
+    jpeg_quality=(20, 50),
+)
+
+NOTEBOOK_DEGRADATION_MODES: tuple[str, ...] = ("gaussian", "salt_pepper", "blur", "jpeg")
 
 
-def _add_poisson_noise(img: np.ndarray, lam: Optional[float] = None) -> np.ndarray:
-    """
-    Add Poisson noise (photon shot noise).
-    lam: mean value for Poisson; if None, scaled from intensity.
-    """
-    out = img.astype(np.float64)
-    if lam is None:
-        lam = random.uniform(10, 80)
-    # Poisson: variance = mean; scale for pixels [0,255]
-    noisy = np.random.poisson(np.maximum(out * lam / 255.0, 1e-6))
-    out = noisy * 255.0 / lam
-    return np.clip(out, 0, 255).astype(np.uint8)
+def _sample_degrade_param(param_name: str):
+    lo, hi = DEGRADE_CFG[param_name]
+    if param_name == "blur_kernel":
+        kernel_choices = [k for k in range(lo, hi + 1) if k % 2 == 1]
+        return random.choice(kernel_choices)
+    if param_name == "jpeg_quality":
+        return random.randint(lo, hi)
+    return random.uniform(lo, hi)
 
 
-def _add_impulse_noise(img: np.ndarray, amount: float, salt_vs_pepper: float = 0.5) -> np.ndarray:
-    """
-    Impulse noise (salt & pepper): random pixels become 0 or 255.
-    amount: fraction of pixels to replace (0..1)
-    salt_vs_pepper: fraction of salt (255) among replaced (0.5 = 50/50)
-    """
-    out = img.copy()
-    h, w = out.shape[:2]
-    n_pixels = h * w
-    n_salt = int(n_pixels * amount * salt_vs_pepper)
-    n_pepper = int(n_pixels * amount * (1 - salt_vs_pepper))
+def add_gaussian_noise(img: torch.Tensor, std: float | None = None) -> torch.Tensor:
+    if std is None:
+        std = _sample_degrade_param("gaussian_std")
+    noise = torch.randn_like(img) * std
+    return (img + noise).clamp(0.0, 1.0)
 
-    # Salt (white pixels) — per pixel (y,x), all channels
-    ys = np.random.randint(0, h, n_salt)
-    xs = np.random.randint(0, w, n_salt)
-    out[ys, xs] = 255
 
-    # Pepper (black pixels)
-    yp = np.random.randint(0, h, n_pepper)
-    xp = np.random.randint(0, w, n_pepper)
-    out[yp, xp] = 0
-
+def add_salt_pepper(img: torch.Tensor, amount: float | None = None) -> torch.Tensor:
+    if amount is None:
+        amount = _sample_degrade_param("sp_amount")
+    out = img.clone()
+    mask = torch.rand_like(img)
+    out[mask < amount / 2] = 0.0
+    out[(mask >= amount / 2) & (mask < amount)] = 1.0
     return out
+
+
+def add_blur(img: torch.Tensor, kernel_size: int | None = None) -> torch.Tensor:
+    if kernel_size is None:
+        kernel_size = _sample_degrade_param("blur_kernel")
+    blurrer = transforms.GaussianBlur(kernel_size=kernel_size, sigma=(1.0, 2.0))
+    return blurrer(img)
+
+
+def add_jpeg_artifacts(img: torch.Tensor, quality: int | None = None) -> torch.Tensor:
+    if quality is None:
+        quality = _sample_degrade_param("jpeg_quality")
+    pil = transforms.ToPILImage(mode="L")(img)
+    buf = io.BytesIO()
+    pil.save(buf, format="JPEG", quality=int(quality))
+    buf.seek(0)
+    pil_dec = Image.open(buf).convert("L")
+    return transforms.ToTensor()(pil_dec)
+
+
+DEGRADATIONS = {
+    "gaussian": add_gaussian_noise,
+    "salt_pepper": add_salt_pepper,
+    "blur": add_blur,
+    "jpeg": add_jpeg_artifacts,
+}
+
+DEGRADE_PARAMS = {
+    "gaussian": {"std": "gaussian_std"},
+    "salt_pepper": {"amount": "sp_amount"},
+    "blur": {"kernel_size": "blur_kernel"},
+    "jpeg": {"quality": "jpeg_quality"},
+}
+
+
+def degrade(img: torch.Tensor, mode: str = "random") -> torch.Tensor:
+    """Apply one degradation; (1, H, W) float [0,1]. mode='random' picks one of four."""
+    if mode == "random":
+        mode = random.choice(list(DEGRADATIONS.keys()))
+    if mode not in DEGRADATIONS:
+        raise ValueError(f"Unknown degradation mode: {mode}")
+    fn = DEGRADATIONS[mode]
+    params = {k: _sample_degrade_param(v) for k, v in DEGRADE_PARAMS[mode].items()}
+    return fn(img, **params)
+
+
+def apply_degradation_pipeline_tensor(
+    img_1hw: torch.Tensor,
+    modes: Sequence[str],
+) -> torch.Tensor:
+    """
+    Apply degradations in order. Empty modes → unchanged.
+    img_1hw: (1, H, W) float32 [0, 1].
+    """
+    if img_1hw.dim() != 3 or img_1hw.shape[0] != 1:
+        raise ValueError(f"Expected shape (1, H, W), got {tuple(img_1hw.shape)}")
+    out = img_1hw.clone()
+    for mode in modes:
+        if mode not in DEGRADATIONS:
+            raise ValueError(f"Unknown mode: {mode}. Use one of {list(DEGRADATIONS.keys())}")
+        out = degrade(out, mode)
+    return out
+
+
+def gray_uint8_to_tensor_1hw(arr: np.ndarray) -> torch.Tensor:
+    """(H, W) uint8 → (1, H, W) float [0,1]."""
+    if arr.ndim != 2:
+        raise ValueError(f"Expected 2D grayscale, got shape {arr.shape}")
+    return torch.from_numpy(arr.astype(np.float32) / 255.0).unsqueeze(0)
+
+
+def tensor_1hw_to_gray_uint8(t: torch.Tensor) -> np.ndarray:
+    """(1, H, W) float → (H, W) uint8."""
+    return (t.squeeze(0).clamp(0, 1).cpu().numpy() * 255.0).astype(np.uint8)
+
+
+def apply_degradation_pipeline_uint8(
+    gray_uint8: np.ndarray,
+    modes: Iterable[str],
+) -> np.ndarray:
+    """Grayscale uint8 (H, W) — same shape after pipeline."""
+    modes_list: List[str] = list(modes)
+    t = gray_uint8_to_tensor_1hw(gray_uint8)
+    t = apply_degradation_pipeline_tensor(t, modes_list)
+    return tensor_1hw_to_gray_uint8(t)
 
 
 def apply_degradation(img: np.ndarray) -> np.ndarray:
     """
-    Apply a random set of degradations to RGB or grayscale image (uint8).
-
-    Degradations (each applied independently with given probability):
-      • Gaussian noise (80%)
-      • Poisson noise (40%)
-      • Impulse noise / salt & pepper (30%)
-      • Gaussian blur (50%)
-      • JPEG artifacts (50%)
-      • Downscale → Upscale (30%)
-
-    Parameters scale with image size so the effect is visible on both small and large images.
+    Legacy helper: random 2–4 notebook degradations on uint8 BGR or grayscale.
+    For new code use apply_degradation_pipeline_uint8 with explicit modes.
     """
-    out = img.copy()
-    h, w = out.shape[:2]
-    n_pixels = h * w
-    # Reference: 256×256; scale so larger images get stronger degradation
-    scale = (n_pixels / (256 * 256)) ** 0.25  # gentle scaling
+    if img.ndim == 2:
+        gray = img
+    else:
+        import cv2
 
-    # Gaussian noise — scale sigma so noise is visible on large images
-    if random.random() < 0.8:
-        sigma = random.uniform(5, 50) * scale
-        sigma = min(sigma, 80)
-        noise = np.random.normal(0, sigma, out.shape).astype(np.float32)
-        out = np.clip(out.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    t = gray_uint8_to_tensor_1hw(gray)
+    k = random.randint(2, 4)
+    chosen = random.sample(list(DEGRADATIONS.keys()), k=k)
+    t = apply_degradation_pipeline_tensor(t, chosen)
+    out = tensor_1hw_to_gray_uint8(t)
+    if img.ndim == 2:
+        return out
+    import cv2
 
-    # Poisson noise
-    if random.random() < 0.4:
-        out = _add_poisson_noise(out)
-
-    # Impulse noise (salt & pepper)
-    if random.random() < 0.3:
-        amount = random.uniform(0.01, 0.05)
-        out = _add_impulse_noise(out, amount=amount)
-
-    # Gaussian blur — scale kernel with image size (on large images, 7px blur is negligible)
-    if random.random() < 0.5:
-        base = max(3, min(31, 3 + 2 * (min(h, w) // 256)))
-        ksize = base if base % 2 == 1 else base + 1
-        out = cv2.GaussianBlur(out, (ksize, ksize), 0)
-
-    # JPEG compression
-    if random.random() < 0.5:
-        quality = random.randint(10, 60)
-        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
-        _, enc = cv2.imencode(".jpg", out, encode_param)
-        out = cv2.imdecode(enc, cv2.IMREAD_COLOR)
-        if out is None:
-            out = img.copy()
-
-    # Downscale → Upscale — scale factor with image size
-    if random.random() < 0.3:
-        min_side = min(h, w)
-        factor = min(8, max(2, min_side // 256))
-        small = cv2.resize(out, (max(1, w // factor), max(1, h // factor)), interpolation=cv2.INTER_AREA)
-        out = cv2.resize(small, (w, h), interpolation=cv2.INTER_CUBIC)
-
-    return out
+    return cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
